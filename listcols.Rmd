@@ -1,0 +1,203 @@
+---
+title: "List Cols"
+author: "Wenxin Tian"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(rvest)
+```
+
+## Lists
+
+```{r}
+vec_numeric = 1:4
+vec_char = c("a", "b", "c", "d")
+
+tibble(
+  num = vec_numeric,
+  char = vec_char
+)
+```
+
+```{r}
+l = 
+  list(
+    vec_numeric = 1:5,
+    vec_char = LETTERS,
+    matrix = matrix(1:10, nrow = 5, ncol = 2),
+    summary = summary(rnorm(100))
+  )
+
+l[[1]]
+l["summary"]
+```
+
+### Loops:
+
+```{r}
+mean_and_sd = function(x) {
+  
+  if (!is.numeric(x)) {
+    stop("Argument x should be numeric")
+  } else if (length(x) == 1) {
+    stop("Cannot be computed for length 1 vectors")
+  }
+  
+  mean_x = mean(x)
+  sd_x = sd(x)
+
+  tibble(
+    mean = mean_x, 
+    sd = sd_x
+  )
+}
+
+list_norms = 
+  list(
+    a = rnorm(20, 3, 1),
+    b = rnorm(20, 0, 5),
+    c = rnorm(20, 10, .2),
+    d = rnorm(20, -3, 1)
+  )
+
+output = vector("list", length = 4)
+
+for (i in 1:4) {
+  output[[i]] = mean_and_sd(list_norms[[i]])
+}
+
+output
+```
+
+
+### Map:
+
+```{r}
+# Mapping the function mean_and_sd to every input of list_norms
+output_mean_sd = map(list_norms, mean_and_sd)
+output_summary = map(list_norms, summary)
+```
+
+### Listcol:
+
+```{r}
+listcol_df =
+  tibble(
+    name = c('a', 'b', 'c', 'd'),
+    samp = list_norms
+  )
+```
+
+```{r}
+listcol_df |>
+  pull(samp)
+
+mean_and_sd(listcol_df$samp[[1]])
+
+output_mean_sd = map(listcol_df$samp, mean_and_sd)
+
+listcol_df |>
+  mutate(
+    mean_sd = map(samp, mean_and_sd),
+    median = map(samp, median)
+  ) |>
+  select(name, mean_sd) |>
+  unnest(mean_sd)
+```
+
+### NSDUH
+
+```{r}
+nsduh_url = "http://samhda.s3-us-gov-west-1.amazonaws.com/s3fs-public/field-uploads/2k15StateFiles/NSDUHsaeShortTermCHG2015.htm"
+
+nsduh_html = read_html(nsduh_url)
+
+nsduh_table <- function(html, table_num, table_name) {
+  
+  table = 
+    html |> 
+    html_table() |> 
+    nth(table_num) |>
+    slice(-1) |> 
+    select(-contains("P Value")) |>
+    pivot_longer(
+      -State,
+      names_to = "age_year", 
+      values_to = "percent") |>
+    separate(age_year, into = c("age", "year"), sep = "\\(") |>
+    mutate(
+      year = str_replace(year, "\\)", ""),
+      percent = str_replace(percent, "[a-c]$", ""),
+      percent = as.numeric(percent),
+      name = table_name
+    ) |>
+    filter(!(State %in% c("Total U.S.", "Northeast", "Midwest", "South", "West")))
+  table
+}
+
+nsduh_table(nsduh_html, 1, "marj")
+```
+
+Import data using for loop:
+
+```{r}
+table_input = list(1, 4, 5)
+name_input = list("marj", "cocaine", "heroin")
+
+output = vector("list", length = 3)
+
+for (i in 1:3) {
+  output[[i]] = nsduh_table(nsduh_html, table_input[[i]], name_input[[i]])
+}
+
+output
+
+nsduh_df = bind_rows(output)
+nsduh_df
+```
+
+With maps:
+
+```{r}
+table_input = list(1, 4, 5)
+name_input = list("marj", "cocaine", "heroin")
+
+nsduh_table <- function(html, table_num) {
+  
+  table = 
+    html |> 
+    html_table() |> 
+    nth(table_num) |>
+    slice(-1) |> 
+    select(-contains("P Value")) |>
+    pivot_longer(
+      -State,
+      names_to = "age_year", 
+      values_to = "percent") |>
+    separate(age_year, into = c("age", "year"), sep = "\\(") |>
+    mutate(
+      year = str_replace(year, "\\)", ""),
+      percent = str_replace(percent, "[a-c]$", ""),
+      percent = as.numeric(percent)
+    ) |>
+    filter(!(State %in% c("Total U.S.", "Northeast", "Midwest", "South", "West")))
+  table
+}
+
+nsduh_df =
+  tibble(
+    name = name_input,
+    number = table_input
+  ) |>
+  mutate(table = map(number, nsduh_table, html = nsduh_html)) |>
+  unnest(c(name, number, table))
+
+nsduh_df
+
+```
+
+
+
